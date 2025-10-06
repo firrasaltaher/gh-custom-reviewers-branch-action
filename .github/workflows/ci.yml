@@ -58,6 +58,7 @@ jobs:
         uses: ./
         with:
           milliseconds: 2000
+          branch: main
 
       - name: Print Output
         id: output
