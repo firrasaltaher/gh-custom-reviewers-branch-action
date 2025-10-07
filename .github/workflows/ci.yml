@@ -60,7 +60,7 @@ jobs:
         uses: ./
         with:
           branch: main
-          reviewers: testAcc1, testAcc2
+          reviewers: octocat, firrasaltaher, copilot
 
       - name: Print Output
         id: output
