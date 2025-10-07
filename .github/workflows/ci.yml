@@ -61,7 +61,6 @@ jobs:
         with:
           branch: main
           reviewers: firrasaltaher, copilot
-          token: ${{ secrets.GH_PAT }}
 
       - name: Print Output
         id: output
