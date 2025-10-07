@@ -57,7 +57,6 @@ jobs:
         id: test-action
         uses: ./
         with:
-          milliseconds: 2000
           branch: main
           reviewers: 'testAcc1', 'testAcc2'
 
