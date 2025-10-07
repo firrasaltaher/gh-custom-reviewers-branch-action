@@ -60,7 +60,7 @@ jobs:
         uses: ./
         with:
           branch: test
-          reviewers: ['testAcc1', 'testAcc2']
+          reviewers: testAcc1, testAcc2
 
       - name: Print Output
         id: output
