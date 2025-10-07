@@ -16,8 +16,7 @@ inputs:
     description: Comma-separated list of GitHub usernames to add as reviewers
     required: false
   team-reviewers:
-    description:
-      Comma-separated list of GitHub team slugs to add as reviewers (optional)
+    description: Comma-separated list of GitHub team slugs to add as reviewers
     required: false
   token:
     description: GitHub token with appropriate permissions to request reviews

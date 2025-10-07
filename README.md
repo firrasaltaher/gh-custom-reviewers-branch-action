@@ -125,11 +125,11 @@ the following scopes:
 
 1. **Event Detection**: The action only runs on `pull_request` and
    `pull_request_target` events
-2. **Branch Matching**: Compares the pull request's target branch with the
+1. **Branch Matching**: Compares the pull request's target branch with the
    configured `branch` input
-3. **Reviewer Assignment**: If branches match, adds the specified reviewers
+1. **Reviewer Assignment**: If branches match, adds the specified reviewers
    and/or team reviewers
-4. **Output Generation**: Provides lists of successfully added reviewers and
+1. **Output Generation**: Provides lists of successfully added reviewers and
    teams
 
 ## Example Scenarios
