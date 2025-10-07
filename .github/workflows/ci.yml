@@ -57,13 +57,13 @@ jobs:
 
       - name: Test Local Action
         id: test-action
-        token: ${{ secrets.GH_PAT }}
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         uses: ./
         with:
           branch: main
-          reviewers: octocat, firrasaltaher, copilot
+          reviewers: firrasaltaher, copilot
+          token: ${{ secrets.GH_PAT }}
 
       - name: Print Output
         id: output
