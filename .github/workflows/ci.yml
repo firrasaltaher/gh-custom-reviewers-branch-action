@@ -4,9 +4,11 @@ on:
   pull_request:
     branches:
       - main
+      - test
   push:
     branches:
       - main
+      - test
 
 permissions:
   contents: read
@@ -57,8 +59,8 @@ jobs:
         id: test-action
         uses: ./
         with:
-          branch: main
-          reviewers: 'testAcc1', 'testAcc2'
+          branch: test
+          reviewers: ['testAcc1', 'testAcc2']
 
       - name: Print Output
         id: output
