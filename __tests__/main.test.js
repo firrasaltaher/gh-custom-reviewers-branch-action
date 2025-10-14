@@ -237,7 +237,7 @@ describe('main.js', () => {
     await run()
 
     expect(core.setFailed).toHaveBeenCalledWith(
-      'At least one of reviewers or team-reviewers must be provided'
+      'At least one of reviewers, team-reviewers, or use-codeowners must be provided'
     )
   })
 
@@ -262,5 +262,317 @@ describe('main.js', () => {
     await run()
 
     expect(core.setFailed).toHaveBeenCalledWith('API Error: User not found')
+  })
+
+  it('Successfully uses CODEOWNERS to add reviewers', async () => {
+    core.getInput.mockImplementation((name) => {
+      switch (name) {
+        case 'branch':
+          return 'main'
+        case 'use-codeowners':
+          return 'true'
+        case 'codeowners-branch':
+          return 'main'
+        case 'token':
+          return 'mock-token'
+        default:
+          return ''
+      }
+    })
+
+    // Mock changed files
+    github.mockOctokit.rest.pulls.listFiles.mockResolvedValue({
+      data: [{ filename: 'src/main.js' }, { filename: 'docs/README.md' }]
+    })
+
+    // Mock CODEOWNERS file content
+    const codeownersContent = Buffer.from(
+      '# CODEOWNERS\n' +
+        'src/ @developer1 @org/frontend-team\n' +
+        'docs/ @tech-writer\n' +
+        '* @admin'
+    ).toString('base64')
+
+    github.mockOctokit.rest.repos.getContent.mockResolvedValue({
+      data: {
+        content: codeownersContent
+      }
+    })
+
+    github.mockOctokit.rest.pulls.requestReviewers.mockResolvedValue({
+      data: {
+        requested_reviewers: [
+          { login: 'developer1' },
+          { login: 'tech-writer' },
+          { login: 'admin' }
+        ],
+        requested_teams: [{ slug: 'frontend-team' }]
+      }
+    })
+
+    await run()
+
+    // Verify CODEOWNERS file was fetched
+    expect(github.mockOctokit.rest.repos.getContent).toHaveBeenCalledWith({
+      owner: 'test-owner',
+      repo: 'test-repo',
+      path: 'CODEOWNERS',
+      ref: 'main'
+    })
+
+    // Verify changed files were fetched
+    expect(github.mockOctokit.rest.pulls.listFiles).toHaveBeenCalledWith({
+      owner: 'test-owner',
+      repo: 'test-repo',
+      pull_number: 123
+    })
+
+    // Verify reviewers were requested (admin matches * pattern)
+    expect(github.mockOctokit.rest.pulls.requestReviewers).toHaveBeenCalledWith(
+      {
+        owner: 'test-owner',
+        repo: 'test-repo',
+        pull_number: 123,
+        reviewers: expect.arrayContaining([
+          'developer1',
+          'tech-writer',
+          'admin'
+        ]),
+        team_reviewers: ['frontend-team']
+      }
+    )
+  })
+
+  it('Combines CODEOWNERS reviewers with input reviewers', async () => {
+    core.getInput.mockImplementation((name) => {
+      switch (name) {
+        case 'branch':
+          return 'main'
+        case 'reviewers':
+          return 'manual-reviewer'
+        case 'team-reviewers':
+          return 'manual-team'
+        case 'use-codeowners':
+          return 'true'
+        case 'codeowners-branch':
+          return 'main'
+        case 'token':
+          return 'mock-token'
+        default:
+          return ''
+      }
+    })
+
+    github.mockOctokit.rest.pulls.listFiles.mockResolvedValue({
+      data: [{ filename: 'src/main.js' }]
+    })
+
+    const codeownersContent = Buffer.from('src/ @codeowner1').toString('base64')
+    github.mockOctokit.rest.repos.getContent.mockResolvedValue({
+      data: { content: codeownersContent }
+    })
+
+    github.mockOctokit.rest.pulls.requestReviewers.mockResolvedValue({
+      data: {
+        requested_reviewers: [
+          { login: 'manual-reviewer' },
+          { login: 'codeowner1' }
+        ],
+        requested_teams: [{ slug: 'manual-team' }]
+      }
+    })
+
+    await run()
+
+    expect(github.mockOctokit.rest.pulls.requestReviewers).toHaveBeenCalledWith(
+      {
+        owner: 'test-owner',
+        repo: 'test-repo',
+        pull_number: 123,
+        reviewers: expect.arrayContaining(['manual-reviewer', 'codeowner1']),
+        team_reviewers: ['manual-team']
+      }
+    )
+  })
+
+  it('Removes PR author from reviewers list', async () => {
+    core.getInput.mockImplementation((name) => {
+      switch (name) {
+        case 'branch':
+          return 'main'
+        case 'reviewers':
+          return 'pr-author,other-reviewer'
+        case 'token':
+          return 'mock-token'
+        default:
+          return ''
+      }
+    })
+
+    github.mockOctokit.rest.pulls.requestReviewers.mockResolvedValue({
+      data: {
+        requested_reviewers: [{ login: 'other-reviewer' }],
+        requested_teams: []
+      }
+    })
+
+    await run()
+
+    expect(github.mockOctokit.rest.pulls.requestReviewers).toHaveBeenCalledWith(
+      {
+        owner: 'test-owner',
+        repo: 'test-repo',
+        pull_number: 123,
+        reviewers: ['other-reviewer']
+      }
+    )
+  })
+
+  it('Handles missing CODEOWNERS file gracefully', async () => {
+    core.getInput.mockImplementation((name) => {
+      switch (name) {
+        case 'branch':
+          return 'main'
+        case 'use-codeowners':
+          return 'true'
+        case 'reviewers':
+          return 'fallback-reviewer'
+        case 'token':
+          return 'mock-token'
+        default:
+          return ''
+      }
+    })
+
+    github.mockOctokit.rest.pulls.listFiles.mockResolvedValue({
+      data: [{ filename: 'src/main.js' }]
+    })
+
+    // Mock CODEOWNERS file not found
+    github.mockOctokit.rest.repos.getContent.mockRejectedValue(
+      new Error('Not Found')
+    )
+
+    github.mockOctokit.rest.pulls.requestReviewers.mockResolvedValue({
+      data: {
+        requested_reviewers: [{ login: 'fallback-reviewer' }],
+        requested_teams: []
+      }
+    })
+
+    await run()
+
+    // Should still add fallback reviewers
+    expect(github.mockOctokit.rest.pulls.requestReviewers).toHaveBeenCalledWith(
+      {
+        owner: 'test-owner',
+        repo: 'test-repo',
+        pull_number: 123,
+        reviewers: ['fallback-reviewer']
+      }
+    )
+  })
+
+  it('Skips when no reviewers remain after filtering', async () => {
+    core.getInput.mockImplementation((name) => {
+      switch (name) {
+        case 'branch':
+          return 'main'
+        case 'reviewers':
+          return 'pr-author' // Only the PR author
+        case 'token':
+          return 'mock-token'
+        default:
+          return ''
+      }
+    })
+
+    await run()
+
+    // Should not call requestReviewers when all reviewers are filtered out
+    expect(
+      github.mockOctokit.rest.pulls.requestReviewers
+    ).not.toHaveBeenCalled()
+    expect(core.setOutput).not.toHaveBeenCalled()
+  })
+
+  it('Uses custom codeowners branch', async () => {
+    core.getInput.mockImplementation((name) => {
+      switch (name) {
+        case 'branch':
+          return 'main'
+        case 'use-codeowners':
+          return 'true'
+        case 'codeowners-branch':
+          return 'develop'
+        case 'token':
+          return 'mock-token'
+        default:
+          return ''
+      }
+    })
+
+    github.mockOctokit.rest.pulls.listFiles.mockResolvedValue({
+      data: [{ filename: 'src/main.js' }]
+    })
+
+    const codeownersContent = Buffer.from('src/ @developer').toString('base64')
+    github.mockOctokit.rest.repos.getContent.mockResolvedValue({
+      data: { content: codeownersContent }
+    })
+
+    github.mockOctokit.rest.pulls.requestReviewers.mockResolvedValue({
+      data: {
+        requested_reviewers: [{ login: 'developer' }],
+        requested_teams: []
+      }
+    })
+
+    await run()
+
+    // Verify CODEOWNERS was fetched from custom branch
+    expect(github.mockOctokit.rest.repos.getContent).toHaveBeenCalledWith({
+      owner: 'test-owner',
+      repo: 'test-repo',
+      path: 'CODEOWNERS',
+      ref: 'develop'
+    })
+  })
+
+  it('Works with use-codeowners only (no manual reviewers)', async () => {
+    core.getInput.mockImplementation((name) => {
+      switch (name) {
+        case 'branch':
+          return 'main'
+        case 'use-codeowners':
+          return 'true'
+        case 'token':
+          return 'mock-token'
+        default:
+          return ''
+      }
+    })
+
+    github.mockOctokit.rest.pulls.listFiles.mockResolvedValue({
+      data: [{ filename: 'src/main.js' }]
+    })
+
+    const codeownersContent = Buffer.from('src/ @developer').toString('base64')
+    github.mockOctokit.rest.repos.getContent.mockResolvedValue({
+      data: { content: codeownersContent }
+    })
+
+    github.mockOctokit.rest.pulls.requestReviewers.mockResolvedValue({
+      data: {
+        requested_reviewers: [{ login: 'developer' }],
+        requested_teams: []
+      }
+    })
+
+    await run()
+
+    // Should not fail validation when only use-codeowners is provided
+    expect(core.setFailed).not.toHaveBeenCalled()
+    expect(github.mockOctokit.rest.pulls.requestReviewers).toHaveBeenCalled()
   })
 })

@@ -31242,6 +31242,188 @@ function requireGithub () {
 var githubExports = requireGithub();
 
 /**
+ * Parses a comma-separated string input into an array of trimmed, non-empty strings.
+ *
+ * @param {string} input
+ * @returns {string[]}
+ */
+function parseInputList(input) {
+  return input
+    ? input
+        .split(',')
+        .map((item) => item.trim())
+        .filter((item) => item)
+    : []
+}
+
+/**
+ * Fetches and parses the CODEOWNERS file from the specified branch.
+ *
+ * @param {import('@octokit/rest').Octokit} octokit - GitHub client
+ * @param {object} repo - Repository context
+ * @param {string} branch - Branch to fetch CODEOWNERS from
+ * @param {string[]} changedFiles - Array of changed file paths in the PR
+ * @returns {Promise<{reviewers: string[], teams: string[]}>} Parsed reviewers and teams
+ */
+async function getCodeOwnersReviewers(octokit, repo, branch, changedFiles) {
+  try {
+    // Try different possible locations for CODEOWNERS file
+    const codeOwnersLocations = [
+      'CODEOWNERS',
+      '.github/CODEOWNERS',
+      'docs/CODEOWNERS'
+    ];
+
+    let codeOwnersContent = null;
+    let foundLocation = null;
+
+    for (const location of codeOwnersLocations) {
+      try {
+        const response = await octokit.rest.repos.getContent({
+          owner: repo.owner,
+          repo: repo.repo,
+          path: location,
+          ref: branch
+        });
+
+        if (
+          response.data &&
+          !Array.isArray(response.data) &&
+          response.data.content
+        ) {
+          codeOwnersContent = Buffer.from(
+            response.data.content,
+            'base64'
+          ).toString('utf8');
+          foundLocation = location;
+          break
+        }
+      } catch (error) {
+        // File doesn't exist at this location, try next
+        continue
+      }
+    }
+
+    if (!codeOwnersContent) {
+      coreExports.info('No CODEOWNERS file found in repository');
+      return { reviewers: [], teams: [] }
+    }
+
+    coreExports.info(`Found CODEOWNERS file at: ${foundLocation}`);
+
+    // Parse CODEOWNERS file
+    const lines = codeOwnersContent.split('\n');
+    const rules = [];
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+
+      // Skip empty lines and comments
+      if (!trimmedLine || trimmedLine.startsWith('#')) {
+        continue
+      }
+
+      const parts = trimmedLine.split(/\s+/);
+      if (parts.length >= 2) {
+        const pattern = parts[0];
+        const owners = parts.slice(1);
+        rules.push({ pattern, owners });
+      }
+    }
+
+    // Find matching rules for changed files
+    const matchingOwners = new Set();
+
+    for (const file of changedFiles) {
+      for (const rule of rules.reverse()) {
+        // Reverse to match last rule first (as per CODEOWNERS spec)
+        if (matchesPattern(file, rule.pattern)) {
+          rule.owners.forEach((owner) => matchingOwners.add(owner));
+          break // Stop at first match for this file
+        }
+      }
+    }
+
+    // Separate users and teams
+    const reviewers = [];
+    const teams = [];
+
+    for (const owner of matchingOwners) {
+      if (owner.startsWith('@')) {
+        const cleanOwner = owner.substring(1); // Remove @ prefix
+        if (cleanOwner.includes('/')) {
+          // It's a team (org/team format)
+          teams.push(cleanOwner.split('/')[1]); // Extract team name
+        } else {
+          // It's a user
+          reviewers.push(cleanOwner);
+        }
+      }
+    }
+
+    return { reviewers, teams }
+  } catch (error) {
+    coreExports.warning(`Failed to fetch CODEOWNERS: ${error.message}`);
+    return { reviewers: [], teams: [] }
+  }
+}
+
+/**
+ * Check if a file path matches a CODEOWNERS pattern.
+ *
+ * @param {string} filePath - The file path to check
+ * @param {string} pattern - The CODEOWNERS pattern
+ * @returns {boolean} True if the pattern matches
+ */
+function matchesPattern(filePath, pattern) {
+  // Convert glob pattern to regex
+  // This is a simplified implementation - you might want to use a proper glob library
+  if (pattern === '*') {
+    return true
+  }
+
+  if (pattern.endsWith('*')) {
+    const prefix = pattern.slice(0, -1);
+    return filePath.startsWith(prefix)
+  }
+
+  if (pattern.startsWith('*')) {
+    const suffix = pattern.slice(1);
+    return filePath.endsWith(suffix)
+  }
+
+  if (pattern.includes('*')) {
+    const regexPattern = pattern.replace(/\*/g, '.*');
+    return new RegExp(`^${regexPattern}$`).test(filePath)
+  }
+
+  return filePath === pattern || filePath.startsWith(pattern + '/')
+}
+
+/**
+ * Gets the list of changed files in a pull request.
+ *
+ * @param {import('@octokit/rest').Octokit} octokit - GitHub client
+ * @param {object} repo - Repository context
+ * @param {number} pullNumber - Pull request number
+ * @returns {Promise<string[]>} Array of changed file paths
+ */
+async function getChangedFiles(octokit, repo, pullNumber) {
+  try {
+    const response = await octokit.rest.pulls.listFiles({
+      owner: repo.owner,
+      repo: repo.repo,
+      pull_number: pullNumber
+    });
+
+    return response.data.map((file) => file.filename)
+  } catch (error) {
+    coreExports.warning(`Failed to get changed files: ${error.message}`);
+    return []
+  }
+}
+
+/**
  * The main function for the action.
  *
  * @returns {Promise<void>} Resolves when the action is complete.
@@ -31252,15 +31434,17 @@ async function run() {
     const targetBranch = coreExports.getInput('branch');
     const reviewersInput = coreExports.getInput('reviewers');
     const teamReviewersInput = coreExports.getInput('team-reviewers');
+    const useCodeOwners = coreExports.getInput('use-codeowners') === 'true';
+    const codeOwnersBranch = coreExports.getInput('codeowners-branch') || 'main';
     const token = coreExports.getInput('token');
 
     // Validate inputs
     if (!targetBranch) {
       throw new Error('Branch input is required')
     }
-    if (!reviewersInput && !teamReviewersInput) {
+    if (!reviewersInput && !teamReviewersInput && !useCodeOwners) {
       throw new Error(
-        'At least one of reviewers or team-reviewers must be provided'
+        'At least one of reviewers, team-reviewers, or use-codeowners must be provided'
       )
     }
 
@@ -31293,32 +31477,62 @@ async function run() {
       return
     }
 
-    /**
-     * Parses a comma-separated string input into an array of trimmed, non-empty strings.
-     *
-     * @param {string} input
-     * @returns {string[]}
-     */
-    function parseInputList(input) {
-      return input
-        ? input
-            .split(',')
-            .map((item) => item.trim())
-            .filter((item) => item)
-        : []
-    }
-
-    // Parse reviewers and team reviewers
-    const reviewers = parseInputList(reviewersInput);
-    const teamReviewers = parseInputList(teamReviewersInput);
-
-    coreExports.info(`Reviewers to add: ${reviewers.join(', ')}`);
-    if (teamReviewers.length > 0) {
-      coreExports.info(`Team reviewers to add: ${teamReviewers.join(', ')}`);
-    }
-
     // Create GitHub client
     const octokit = githubExports.getOctokit(token);
+
+    // Parse reviewers and team reviewers from inputs
+    let reviewers = parseInputList(reviewersInput);
+    let teamReviewers = parseInputList(teamReviewersInput);
+
+    // Get reviewers from CODEOWNERS if enabled
+    if (useCodeOwners) {
+      coreExports.info(`Fetching CODEOWNERS from branch: ${codeOwnersBranch}`);
+
+      const changedFiles = await getChangedFiles(
+        octokit,
+        context.repo,
+        pullRequest.number
+      );
+      coreExports.info(`Changed files: ${changedFiles.join(', ')}`);
+
+      const codeOwnersReviewers = await getCodeOwnersReviewers(
+        octokit,
+        context.repo,
+        codeOwnersBranch,
+        changedFiles
+      );
+
+      // Merge with input reviewers (remove duplicates)
+      reviewers = [...new Set([...reviewers, ...codeOwnersReviewers.reviewers])];
+      teamReviewers = [
+        ...new Set([...teamReviewers, ...codeOwnersReviewers.teams])
+      ];
+
+      coreExports.info(
+        `CODEOWNERS reviewers found: ${codeOwnersReviewers.reviewers.join(', ')}`
+      );
+      if (codeOwnersReviewers.teams.length > 0) {
+        coreExports.info(
+          `CODEOWNERS teams found: ${codeOwnersReviewers.teams.join(', ')}`
+        );
+      }
+    }
+
+    // Remove the PR author from reviewers
+    const prAuthor = pullRequest.user?.login;
+    if (prAuthor) {
+      reviewers = reviewers.filter((reviewer) => reviewer !== prAuthor);
+    }
+
+    if (reviewers.length === 0 && teamReviewers.length === 0) {
+      coreExports.info('No reviewers to add after filtering');
+      return
+    }
+
+    coreExports.info(`Final reviewers to add: ${reviewers.join(', ')}`);
+    if (teamReviewers.length > 0) {
+      coreExports.info(`Final team reviewers to add: ${teamReviewers.join(', ')}`);
+    }
 
     // Request reviewers
     const requestData = {

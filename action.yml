@@ -18,6 +18,14 @@ inputs:
   team-reviewers:
     description: Comma-separated list of GitHub team slugs to add as reviewers
     required: false
+  use-codeowners:
+    description: Whether to use CODEOWNERS file to determine reviewers
+    required: false
+    default: 'false'
+  codeowners-branch:
+    description: The branch to read CODEOWNERS file from
+    required: false
+    default: 'main'
   token:
     description: GitHub token with appropriate permissions to request reviews
     required: false
