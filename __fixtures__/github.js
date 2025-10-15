@@ -15,6 +15,9 @@ export const context = {
       number: 123,
       base: {
         ref: 'main'
+      },
+      user: {
+        login: 'pr-author'
       }
     }
   }
@@ -24,7 +27,11 @@ export const context = {
 export const mockOctokit = {
   rest: {
     pulls: {
-      requestReviewers: jest.fn()
+      requestReviewers: jest.fn(),
+      listFiles: jest.fn()
+    },
+    repos: {
+      getContent: jest.fn()
     }
   }
 }
