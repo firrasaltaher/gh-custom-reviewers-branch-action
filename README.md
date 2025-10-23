@@ -2,6 +2,8 @@
 
 This proof of concept automatically assigns reviewers to pull requests based on the CODEOWNERS file and posts a notification comment.
 
+> **Test note**: Testing branch-specific reviewer requirements.
+
 ## Features
 
 - ✅ Parses CODEOWNERS file and matches changed files to owners
