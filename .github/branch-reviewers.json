@@ -1,11 +1,11 @@
 {
   "branches": {
     "main": {
-      "reviewers": ["firrasaltaher", "jhaindev"],
+      "reviewers": ["firrasaltaher", "jhaindev", "karpikpl"],
       "require_minimum": 1
     },
     "documentation-updates": {
-      "reviewers": ["firrasaltaher"],
+      "reviewers": ["firrasaltaher", "karpikpl"],
       "require_minimum": 1
     }
   }
