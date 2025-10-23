@@ -1,0 +1,28 @@
+name: Assign Reviewers from CODEOWNERS
+
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+jobs:
+  assign-reviewers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @octokit/rest
+
+      - name: Run reviewer assignment script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # For team access, you may need a PAT with additional scopes:
+          # GITHUB_PAT: ${{ secrets.REVIEWER_PAT }}
+        run: node .github/scripts/assign-reviewers.js

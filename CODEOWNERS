@@ -1,6 +1,41 @@
-############################################################################
-#                           Repository CODEOWNERS                          #
-# Order is important! The last matching pattern takes the most precedence. #
-############################################################################
+# CODEOWNERS - Example file
+# Each line is a file pattern followed by one or more owners.
+# Order matters - the last matching pattern has the most precedence.
 
-@firrasaltaher
+# Default owners for everything in the repo
+* @default-reviewer
+
+# Frontend code
+/src/components/ @frontend-team @alice
+/src/styles/ @frontend-team @bob
+*.css @frontend-team
+*.tsx @frontend-team
+*.jsx @frontend-team
+
+# Backend code
+/src/api/ @backend-team @charlie
+/src/services/ @backend-team @charlie
+*.py @backend-team
+
+# Infrastructure and DevOps
+/.github/ @devops-team @alice
+/docker/ @devops-team
+*.yml @devops-team
+*.yaml @devops-team
+
+# Database
+/migrations/ @database-team @charlie
+/schema/ @database-team
+
+# Documentation
+*.md @docs-team @bob
+/docs/ @docs-team
+
+# Security-sensitive files
+/auth/ @security-team @myorg/security
+*.key @security-team
+.env* @security-team
+
+# Team format examples (requires PAT with org access)
+# Use format: @organization/team-name
+/critical/ @myorg/core-team

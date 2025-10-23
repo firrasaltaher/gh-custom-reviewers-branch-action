@@ -1,175 +1,270 @@
-# Custom Reviewers Branch Action
+# GitHub Actions CODEOWNERS Reviewer Assignment POC
 
-![CI](https://github.com/firrasaltaher/gh-custom-reviewers-branch-action/actions/workflows/ci.yml/badge.svg)
-[![Check dist/](https://github.com/firrasaltaher/gh-custom-reviewers-branch-action/actions/workflows/check-dist.yml/badge.svg)](https://github.com/firrasaltaher/gh-custom-reviewers-branch-action/actions/workflows/check-dist.yml)
-[![Coverage](./badges/coverage.svg)](./badges/coverage.svg)
-
-A GitHub Action that allows you to assign custom reviewers to pull requests
-based on the target branch. This action enables you to configure different
-reviewers for different branches, making it perfect for organizations with
-branch-specific review requirements.
+This proof of concept automatically assigns reviewers to pull requests based on the CODEOWNERS file and posts a notification comment.
 
 ## Features
 
-- ✅ **Branch-specific reviewer assignment**: Configure different reviewers for
-  different branches
-- ✅ **Individual and team reviewers**: Support for both individual GitHub users
-  and team reviewers
-- ✅ **Flexible configuration**: Easy to set up with simple inputs
-- ✅ **Automatic detection**: Only runs on pull request events
-- ✅ **Safe operation**: Validates inputs and handles errors gracefully
+- ✅ Parses CODEOWNERS file and matches changed files to owners
+- ✅ Automatically assigns individual reviewers to PRs
+- ✅ Supports team reviewer assignment (with proper PAT)
+- ✅ Posts a comment to notify all assigned reviewers
+- ✅ Tests and reports PAT permissions
+- ✅ Graceful fallback if team assignment fails
 
-## Usage
+## GitHub PAT Requirements for Teams
 
-### Basic Example
+### Understanding the Token Types
 
-```yaml
-name: Assign Custom Reviewers
+#### 1. Default `GITHUB_TOKEN` (Automatic)
+- **Scopes:** Limited to the repository
+- **Can do:**
+  - Read repository files
+  - Assign individual user reviewers
+  - Create PR comments
+- **Cannot do:**
+  - Assign team reviewers (requires org-level access)
+  - Read organization information
+- **Setup:** Automatically available, no configuration needed
 
-on:
-  pull_request:
-    types: [opened, reopened, ready_for_review]
+#### 2. Personal Access Token (PAT) - Required for Teams
+To assign **team reviewers**, you need a PAT with additional scopes.
 
-jobs:
-  assign-reviewers:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Assign reviewers for main branch
-        if: github.event.pull_request.base.ref == 'main'
-        uses: firrasaltaher/gh-custom-reviewers-branch-action@v1
-        with:
-          branch: 'main'
-          reviewers: 'senior-dev1,senior-dev2,architect'
-          team-reviewers: 'core-team,security-team'
-          token: ${{ secrets.GITHUB_TOKEN }}
-```
+### Creating a PAT for Team Access
 
-### Multiple Branch Configuration
+#### Classic PAT (Recommended for POC)
+1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Click "Generate new token (classic)"
+3. Select the following scopes:
+   - ✅ `repo` (Full control of private repositories)
+     - Includes: `repo:status`, `repo_deployment`, `public_repo`, `repo:invite`
+   - ✅ `read:org` (Read org and team membership)
+     - Required to read team information and assign team reviewers
+   - ✅ `write:discussion` (optional, for discussions)
 
-```yaml
-name: Branch-specific Reviewers
+#### Fine-grained PAT (More secure, newer)
+1. Go to GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens
+2. Click "Generate new token"
+3. Select repository access (the repos where this action will run)
+4. Under "Repository permissions":
+   - Pull requests: **Read and write**
+   - Contents: **Read**
+   - Metadata: **Read**
+5. Under "Organization permissions":
+   - Members: **Read** (required for team access)
 
-on:
-  pull_request:
-    types: [opened, reopened, ready_for_review]
+### Comparison: Which PAT Works?
 
-jobs:
-  assign-reviewers:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Assign reviewers for main branch
-        if: github.event.pull_request.base.ref == 'main'
-        uses: firrasaltaher/gh-custom-reviewers-branch-action@v1
-        with:
-          branch: 'main'
-          reviewers: 'senior-dev1,senior-dev2'
-          team-reviewers: 'core-team'
+| Token Type | Individual Reviewers | Team Reviewers | Security |
+|------------|---------------------|----------------|----------|
+| `GITHUB_TOKEN` | ✅ Yes | ❌ No | ⭐⭐⭐ Most secure |
+| Classic PAT with `repo` only | ✅ Yes | ❌ No | ⭐⭐ Moderate |
+| Classic PAT with `repo` + `read:org` | ✅ Yes | ✅ Yes | ⭐⭐ Moderate |
+| Fine-grained PAT (properly configured) | ✅ Yes | ✅ Yes | ⭐⭐⭐ Most secure |
 
-      - name: Assign reviewers for develop branch
-        if: github.event.pull_request.base.ref == 'develop'
-        uses: firrasaltaher/gh-custom-reviewers-branch-action@v1
-        with:
-          branch: 'develop'
-          reviewers: 'dev1,dev2'
-          team-reviewers: 'dev-team'
+### Adding PAT to Repository Secrets
 
-      - name: Assign reviewers for release branches
-        if: startsWith(github.event.pull_request.base.ref, 'release/')
-        uses: firrasaltaher/gh-custom-reviewers-branch-action@v1
-        with:
-          branch: ${{ github.event.pull_request.base.ref }}
-          reviewers: 'release-manager,qa-lead'
-          team-reviewers: 'release-team'
-```
+1. Copy your generated PAT
+2. Go to your repository → Settings → Secrets and variables → Actions
+3. Click "New repository secret"
+4. Name: `REVIEWER_PAT`
+5. Paste your token
+6. Click "Add secret"
 
-## Inputs
+### Using the PAT in the Workflow
 
-| Input            | Description                                                   | Required | Default               |
-| ---------------- | ------------------------------------------------------------- | -------- | --------------------- |
-| `branch`         | The target branch to match for adding reviewers               | ✅ Yes   |                       |
-| `reviewers`      | Comma-separated list of GitHub usernames to add as reviewers  | No\*     |                       |
-| `team-reviewers` | Comma-separated list of GitHub team slugs to add as reviewers | No\*     |                       |
-| `token`          | GitHub token with appropriate permissions to request reviews  | No       | `${{ github.token }}` |
-
-\*At least one of `reviewers` or `team-reviewers` must be provided.
-
-## Outputs
-
-| Output            | Description                                                    |
-| ----------------- | -------------------------------------------------------------- |
-| `reviewers-added` | Comma-separated list of reviewers that were successfully added |
-| `teams-added`     | Comma-separated list of teams that were successfully added     |
-
-## Requirements
-
-### Permissions
-
-The action requires the following permissions:
+Update `.github/workflows/assign-reviewers.yml`:
 
 ```yaml
-permissions:
-  pull-requests: write # Required to add reviewers to pull requests
+- name: Run reviewer assignment script
+  env:
+    GITHUB_TOKEN: ${{ secrets.REVIEWER_PAT }}  # Use PAT instead of default token
+  run: node .github/scripts/assign-reviewers.js
 ```
 
-### Token Permissions
+Or keep both for testing:
 
-When using a custom token (instead of the default `GITHUB_TOKEN`), ensure it has
-the following scopes:
+```yaml
+- name: Run reviewer assignment script
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    GITHUB_PAT: ${{ secrets.REVIEWER_PAT }}  # Script will prefer this if available
+  run: node .github/scripts/assign-reviewers.js
+```
 
-- `repo` (for private repositories)
-- `public_repo` (for public repositories)
+## Setup Instructions
+
+### 1. Copy Files to Your Repository
+
+```bash
+# Copy the entire structure to your repo
+cp -r .github/ /path/to/your/repo/.github/
+cp CODEOWNERS /path/to/your/repo/CODEOWNERS
+cp package.json /path/to/your/repo/package.json
+```
+
+### 2. Customize CODEOWNERS
+
+Edit the `CODEOWNERS` file with your actual:
+- User handles (e.g., `@alice`, `@bob`)
+- Team names (e.g., `@myorg/backend-team`)
+- File patterns matching your project structure
+
+### 3. Configure Secrets (if using teams)
+
+Follow the "Adding PAT to Repository Secrets" section above.
+
+### 4. Commit and Push
+
+```bash
+git add .github/ CODEOWNERS package.json
+git commit -m "Add automatic reviewer assignment from CODEOWNERS"
+git push
+```
+
+### 5. Test
+
+Create a pull request and watch the action run:
+- Check the Actions tab for logs
+- Verify reviewers are assigned
+- Confirm a comment is posted
 
 ## How It Works
 
-1. **Event Detection**: The action only runs on `pull_request` and
-   `pull_request_target` events
-1. **Branch Matching**: Compares the pull request's target branch with the
-   configured `branch` input
-1. **Reviewer Assignment**: If branches match, adds the specified reviewers
-   and/or team reviewers
-1. **Output Generation**: Provides lists of successfully added reviewers and
-   teams
-
-## Example Scenarios
-
-### Scenario 1: Different Review Requirements by Branch
+### Workflow Trigger
+The action runs when a PR is opened or moved to "ready for review":
 
 ```yaml
-# main branch: Requires senior developers and security team
-- uses: firrasaltaher/gh-custom-reviewers-branch-action@v1
-  with:
-    branch: 'main'
-    reviewers: 'senior-dev1,senior-dev2'
-    team-reviewers: 'security-team'
-
-# develop branch: Requires any team member
-- uses: firrasaltaher/gh-custom-reviewers-branch-action@v1
-  with:
-    branch: 'develop'
-    reviewers: 'dev1,dev2,dev3'
+on:
+  pull_request:
+    types: [opened, ready_for_review]
 ```
 
-### Scenario 2: Feature Branch Specific Reviews
+### Process Flow
+
+1. **Checkout code** - Gets repository content including CODEOWNERS
+2. **Parse CODEOWNERS** - Reads and parses ownership rules
+3. **Get changed files** - Fetches list of files modified in the PR
+4. **Match patterns** - Finds code owners for the changed files
+5. **Test permissions** - Checks if PAT can access teams
+6. **Assign reviewers** - Requests reviews from users and teams
+7. **Post comment** - Adds a notification comment mentioning reviewers
+
+### Pattern Matching
+
+The script supports common CODEOWNERS patterns:
+- `*` - Matches any file
+- `*.js` - Matches all JavaScript files
+- `/src/` - Matches files in src directory
+- `/src/api/` - Matches files in src/api directory
+
+### Example Output
+
+The script will log detailed information:
+
+```
+Processing PR #42 in myorg/myrepo
+Using token type: PAT
+
+=== Testing PAT Permissions ===
+Authenticated as: bot-user
+Can access 1 organizations
+✓ PAT can read teams in myorg
+
+=== Parsing CODEOWNERS ===
+Found 12 CODEOWNERS rules
+
+=== Getting Changed Files ===
+Found 3 changed files
+
+=== Matching Files to Owners ===
+File "src/api/users.js" matched pattern "/src/api/"
+File "src/api/auth.js" matched pattern "/src/api/"
+Identified 2 relevant owners: ['backend-team', 'charlie']
+
+=== Assigning Reviewers ===
+Requesting reviews from: { reviewers: ['charlie'], team_reviewers: ['backend-team'] }
+✓ Successfully assigned reviewers
+
+=== Adding PR Comment ===
+✓ Successfully added comment to PR
+```
+
+## Troubleshooting
+
+### Teams Not Being Assigned
+
+**Error:** "✗ Failed to assign reviewers: Resource not accessible by integration"
+
+**Solution:** You need a PAT with `read:org` scope. See "Creating a PAT for Team Access" above.
+
+### Comment Not Posted
+
+**Error:** "✗ Failed to add comment: Resource not accessible by integration"
+
+**Solution:** Ensure your PAT has `repo` scope or use the default `GITHUB_TOKEN`.
+
+### No Reviewers Assigned
+
+**Check:**
+1. Does your CODEOWNERS file exist?
+2. Do the patterns match your changed files?
+3. Are the usernames and team names correct?
+4. Check the action logs for pattern matching details
+
+### Testing Locally
+
+You can test the script locally:
+
+```bash
+# Install dependencies
+npm install
+
+# Set environment variables
+export GITHUB_TOKEN="your-pat-here"
+export GITHUB_REPOSITORY="owner/repo"
+export PR_NUMBER=42
+
+# Run script
+node .github/scripts/assign-reviewers.js
+```
+
+## Advanced Configuration
+
+### Exclude Draft PRs
+
+Modify the workflow to skip draft PRs:
 
 ```yaml
-# feature branches: Requires feature team review
-- uses: firrasaltaher/gh-custom-reviewers-branch-action@v1
-  if: startsWith(github.event.pull_request.base.ref, 'feature/')
-  with:
-    branch: ${{ github.event.pull_request.base.ref }}
-    team-reviewers: 'feature-team'
+on:
+  pull_request:
+    types: [opened, ready_for_review]  # Excludes draft PRs
 ```
 
-## Error Handling
+### Run on File Changes
 
-The action handles various error conditions gracefully:
+Only run when certain files change:
 
-- **Missing inputs**: Fails with clear error message if required inputs are
-  missing
-- **API errors**: Catches and reports GitHub API errors
-- **Non-PR events**: Silently skips execution on non-pull request events
-- **Branch mismatch**: Logs information and skips reviewer assignment
+```yaml
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+    paths:
+      - 'src/**'
+      - '!docs/**'
+```
 
-## Contributing
+### Customize Comment Message
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Edit the `addComment` function in `.github/scripts/assign-reviewers.js` to change the comment format.
+
+## Security Considerations
+
+1. **Use fine-grained PATs** when possible for better security
+2. **Limit PAT scope** to only what's needed
+3. **Rotate PATs regularly** (set expiration dates)
+4. **Use organization secrets** for shared workflows
+5. **Monitor PAT usage** in your GitHub audit log
+
+## License
+
+This is a proof of concept for demonstration purposes.

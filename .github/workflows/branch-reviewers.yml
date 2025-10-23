@@ -1,0 +1,136 @@
+name: Branch Reviewers
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+jobs:
+  check-branch-reviewers:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Load reviewer configuration
+        id: load-config
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            const config = JSON.parse(fs.readFileSync('.github/branch-reviewers.json', 'utf8'));
+            const baseBranch = context.payload.pull_request.base.ref;
+            const branchConfig = config.branches[baseBranch];
+
+            if (!branchConfig) {
+              core.setFailed(`No reviewer configuration found for branch: ${baseBranch}`);
+              return;
+            }
+
+            core.info(`📋 Configuration for '${baseBranch}' branch:`);
+            core.info(`   Required reviewers: ${branchConfig.reviewers.join(', ')}`);
+            core.info(`   Minimum approvals: ${branchConfig.require_minimum}`);
+
+            core.setOutput('config', JSON.stringify(branchConfig));
+            core.setOutput('base-branch', baseBranch);
+            return branchConfig;
+
+      - name: Auto-assign reviewers
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const config = JSON.parse('${{ steps.load-config.outputs.config }}');
+            const prNumber = context.payload.pull_request.number;
+            const requiredReviewers = config.reviewers || [];
+
+            if (requiredReviewers.length === 0) {
+              core.info('No reviewers configured');
+              return;
+            }
+
+            // Get currently requested reviewers
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            const currentReviewers = pr.data.requested_reviewers.map(r => r.login);
+            const prAuthor = pr.data.user.login;
+
+            // Find reviewers who aren't already assigned and aren't the PR author
+            const missingReviewers = requiredReviewers.filter(r =>
+              !currentReviewers.includes(r) && r !== prAuthor
+            );
+
+            if (missingReviewers.length > 0) {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                reviewers: missingReviewers
+              });
+
+              core.info(`✅ Added reviewers: ${missingReviewers.join(', ')}`);
+            } else {
+              core.info(`✅ All required reviewers already assigned: ${currentReviewers.join(', ')}`);
+            }
+
+      - name: Check required approvals
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const config = JSON.parse('${{ steps.load-config.outputs.config }}');
+            const prNumber = context.payload.pull_request.number;
+            const baseBranch = '${{ steps.load-config.outputs.base-branch }}';
+
+            // Get all reviews
+            const reviews = await github.rest.pulls.listReviews({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            // Get the latest review from each reviewer
+            const latestReviews = {};
+            for (const review of reviews.data) {
+              latestReviews[review.user.login] = review;
+            }
+
+            // Check who has approved
+            const approvers = Object.values(latestReviews)
+              .filter(review => review.state === 'APPROVED')
+              .map(review => review.user.login);
+
+            core.info(`📝 Current approvers: ${approvers.join(', ') || 'none'}`);
+
+            const requiredReviewers = config.reviewers || [];
+            const requireMinimum = config.require_minimum || 1;
+
+            // Count how many required reviewers have approved
+            const approvedRequiredReviewers = requiredReviewers.filter(reviewer =>
+              approvers.includes(reviewer)
+            );
+            const approvedCount = approvedRequiredReviewers.length;
+
+            core.info(`✓ Required reviewers for '${baseBranch}': ${requiredReviewers.join(', ')}`);
+            core.info(`✓ Approved by: ${approvedRequiredReviewers.join(', ') || 'none'}`);
+            core.info(`✓ Approval count: ${approvedCount}/${requireMinimum} required`);
+
+            if (approvedCount < requireMinimum) {
+              const stillNeeded = requiredReviewers.filter(r => !approvers.includes(r));
+              core.setFailed(
+                `❌ Merge blocked: Need ${requireMinimum} approval(s) from required reviewers for '${baseBranch}' branch.\n` +
+                `Required reviewers: ${requiredReviewers.join(', ')}\n` +
+                `Approved by: ${approvedRequiredReviewers.join(', ') || 'none'}\n` +
+                `Still need approval from: ${stillNeeded.join(', ')}\n` +
+                `Progress: ${approvedCount}/${requireMinimum}`
+              );
+            } else {
+              core.info(`✅ All approval requirements met! (${approvedCount}/${requireMinimum})`);
+            }
