@@ -19,9 +19,8 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const yaml = require('js-yaml');
 
-            const config = yaml.load(fs.readFileSync('.github/branch-reviewers.yml', 'utf8'));
+            const config = JSON.parse(fs.readFileSync('.github/branch-reviewers.json', 'utf8'));
             const baseBranch = context.payload.pull_request.base.ref;
             const branchConfig = config.branches[baseBranch];
 

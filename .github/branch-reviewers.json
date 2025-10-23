@@ -1,0 +1,12 @@
+{
+  "branches": {
+    "main": {
+      "reviewers": ["firrasaltaher", "jhaindev"],
+      "require_minimum": 2
+    },
+    "documentation-updates": {
+      "reviewers": ["jhaindev"],
+      "require_minimum": 1
+    }
+  }
+}
