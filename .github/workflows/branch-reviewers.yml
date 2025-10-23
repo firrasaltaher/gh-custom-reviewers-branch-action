@@ -37,25 +37,45 @@ jobs:
             core.setOutput('base-branch', baseBranch);
             return branchConfig;
 
-      - name: Auto-assign reviewers (on PR open/reopen)
-        if: github.event.action == 'opened' || github.event.action == 'reopened'
+      - name: Auto-assign reviewers
         uses: actions/github-script@v7
         with:
           script: |
             const config = JSON.parse('${{ steps.load-config.outputs.config }}');
             const prNumber = context.payload.pull_request.number;
+            const requiredReviewers = config.reviewers || [];
 
-            const reviewers = config.reviewers || [];
+            if (requiredReviewers.length === 0) {
+              core.info('No reviewers configured');
+              return;
+            }
 
-            if (reviewers.length > 0) {
+            // Get currently requested reviewers
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            const currentReviewers = pr.data.requested_reviewers.map(r => r.login);
+            const prAuthor = pr.data.user.login;
+
+            // Find reviewers who aren't already assigned and aren't the PR author
+            const missingReviewers = requiredReviewers.filter(r =>
+              !currentReviewers.includes(r) && r !== prAuthor
+            );
+
+            if (missingReviewers.length > 0) {
               await github.rest.pulls.requestReviewers({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: prNumber,
-                reviewers: reviewers
+                reviewers: missingReviewers
               });
 
-              core.info(`✅ Assigned reviewers: ${reviewers.join(', ')}`);
+              core.info(`✅ Added reviewers: ${missingReviewers.join(', ')}`);
+            } else {
+              core.info(`✅ All required reviewers already assigned: ${currentReviewers.join(', ')}`);
             }
 
       - name: Check required approvals
