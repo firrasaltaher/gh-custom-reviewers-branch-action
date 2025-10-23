@@ -2,7 +2,7 @@
   "branches": {
     "main": {
       "reviewers": ["firrasaltaher", "jhaindev"],
-      "require_minimum": 2
+      "require_minimum": 1
     },
     "documentation-updates": {
       "reviewers": ["firrasaltaher"],
